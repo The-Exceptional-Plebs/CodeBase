@@ -1,0 +1,70 @@
+//@version=5
+indicator("AR(1) with Simple Volatility", overlay=false)
+
+// Input parameters
+lookback = input.int(252, "Lookback Period", minval=50)
+volatility_period = input.int(22, "Volatility Period", minval=5)
+
+// Calculate log returns
+log_return = 100 * (math.log(close) - math.log(close[1]))
+
+// Function to calculate Mean Squared Error
+mse(series float actual, series float predicted) =>
+    sum = 0.0
+    for i = 0 to lookback - 1
+        sum := sum + math.pow(actual[i] - predicted[i], 2)
+    sum / lookback
+
+// AR(1) parameter estimation
+estimate_ar_param() =>
+    best_ar_param = 0.0
+    best_mse = 1e10
+    for i = -9 to 9
+        test_ar_param = i / 10.0
+        mean_return = ta.sma(log_return, lookback)
+        ar_prediction = mean_return + test_ar_param * (log_return[1] - mean_return)
+        error = mse(log_return, ar_prediction)
+        if error < best_mse
+            best_mse := error
+            best_ar_param := test_ar_param
+    best_ar_param
+
+// Estimate AR parameter
+var float ar_param = 0.0
+if bar_index % lookback == 0
+    ar_param := estimate_ar_param()
+
+// AR(1) model implementation
+mean_return = ta.sma(log_return, lookback)
+ar_prediction = mean_return + ar_param * (log_return[1] - mean_return)
+ar_residual = log_return - ar_prediction
+
+// Simple volatility estimation
+volatility = ta.stdev(log_return, volatility_period) * math.sqrt(252)  // Annualized volatility
+
+// Analyze mean reversion vs trend following
+correlation = ta.correlation(log_return, ar_prediction, lookback)
+is_mean_reverting = ar_param < 0.5 and ar_param > -0.5
+trend_strength = math.abs(correlation)
+
+// Plotting
+plot(log_return, color=color.blue, title="Log Return")
+plot(ar_prediction, color=color.red, title="AR(1) Prediction")
+plot(volatility, color=color.green, title="Volatility", style=plot.style_line, linewidth=2)
+
+// Display estimated parameters and analysis
+var table info = table.new(position.top_right, 6, 2, border_width=1)
+table.cell(info, 0, 0, "Model Analysis", bgcolor=color.yellow, text_color=color.black)
+table.cell(info, 0, 1, "AR(1) φ: " + str.tostring(ar_param), text_color=color.white)
+table.cell(info, 1, 1, "Volatility: " + str.tostring(volatility), text_color=color.white)
+table.cell(info, 2, 1, "Correlation: " + str.tostring(correlation), text_color=color.white)
+table.cell(info, 3, 1, is_mean_reverting ? "Mean Reverting" : "Trend Following", text_color=color.white)
+table.cell(info, 4, 1, "Trend Strength: " + str.tostring(trend_strength), text_color=color.white)
+
+// Debugging: Print values to chart
+if barstate.islast
+    label.new(bar_index, high, text="AR(1) φ: " + str.tostring(ar_param) + 
+              "\nVolatility: " + str.tostring(volatility) + 
+              "\nCorrelation: " + str.tostring(correlation) + 
+              "\nTrend Strength: " + str.tostring(trend_strength), 
+              yloc=yloc.abovebar, color=color.yellow)
