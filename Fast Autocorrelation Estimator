@@ -1,0 +1,167 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Motgench
+
+//@version=5
+indicator("Fast Autocorrelation Estimator" ,precision = 10)
+
+ac = "ACF"
+pac = "PACF"
+
+lr = "Log Returns"
+abs = "Absolute Returns"
+clo = "Orignial Source"
+
+hist = "Autocorrelarrogram"
+lg = "Historical Lagged Autocorrelation"
+
+
+src = input.source(close, "Source", group = "Source Settings", inline = "Source")
+ss = input.string(lr, "Selection", options = [lr,clo, abs], group = "Source Settings",inline = "Source")
+len = input.int(1000, "Lookback", group = "Source Settings")
+lag = input.int(5, "Lag", group = "Model Settings")
+maxl = input.int(30, title = "Max Lag", group = "Model Settings", options = [5,10,15,20,25,30])
+a_sel = input.string(ac, "Autocorrelation Function", group = "Model Settings", options = [ac,pac])
+p_sel = input.string(hist, "Plot Selection", group = "Model Settings", options = [hist,lg])
+
+rx = math.log(src/src[1])
+
+if lag > maxl
+    runtime.error("current lag greater than max lag")
+
+r = ss == "Log Returns" ? rx : ss == "Original Source" ? src : math.abs(rx)
+var returns = array.new_float(len+1)
+array.unshift(returns,r)
+array.pop(returns)
+
+facf(lag)=>
+    x = r, n = len
+    nh = n - lag
+    var x1=0.0,var xxlag = 0.0, var xsum = 0.0, var xlagsum = 0.0, var x2 = 0.0
+    
+    xn = bar_index > n ? array.get(returns,n) : 0
+    xlag = bar_index > lag ? array.get(returns,lag) : 0
+    xnh = bar_index > nh ? array.get(returns,nh) : 0
+    
+    x1 := nz(x1) + x - xn
+    xxlag := nz(xxlag) + x*xlag - xn*xnh
+    xsum := nz(xsum) + x - xnh
+    xlagsum := nz(xlagsum) + xlag - xn
+    x2 := nz(x2) + x*x - xn*xn
+    
+    //mean
+    m1 = x1/n
+    //variance
+    m2 = (x2 - m1*m1*n)/(n)
+    //m2 = x2/n - m1*m1 (population variance)
+    
+    //Mean power
+    mp2 = m1*m1
+    
+    //ACF
+    (xxlag - m1*xlagsum - m1*xsum + nh*mp2) / (n*m2)
+
+var maxL = maxl 
+
+acf1 = facf(1)
+acf2 = facf(2)
+pk = array.new_float(maxl+1)
+array.set(pk,0,1.0)
+array.set(pk,1,acf1)
+array.set(pk,2,facf(2))
+array.set(pk,3,facf(3))
+array.set(pk,4,facf(4))
+array.set(pk,5,facf(5))
+
+if maxl > 5
+    array.set(pk,6,facf(6))
+    array.set(pk,7,facf(7))
+    array.set(pk,8,facf(8))
+    array.set(pk,9,facf(9))
+    array.set(pk,10,facf(10))
+if maxl > 10
+    array.set(pk,11,facf(11))
+    array.set(pk,12,facf(12))
+    array.set(pk,13,facf(13))
+    array.set(pk,14,facf(14))
+    array.set(pk,15,facf(15))
+if maxl > 15
+    array.set(pk,16,facf(16))
+    array.set(pk,17,facf(17))
+    array.set(pk,18,facf(18))
+    array.set(pk,19,facf(19))
+    array.set(pk,20,facf(20))
+if maxl > 20
+    array.set(pk,21,facf(21))
+    array.set(pk,22,facf(22))
+    array.set(pk,23,facf(23))
+    array.set(pk,24,facf(24))
+    array.set(pk,25,facf(25))
+if maxl > 25
+    array.set(pk,26,facf(26))
+    array.set(pk,27,facf(27))
+    array.set(pk,28,facf(28))
+    array.set(pk,29,facf(29))
+    array.set(pk,30,facf(30))
+
+//...
+
+phikk = array.new_float(maxl+1)
+phikj = array.new_float(maxl+1)
+array.set(phikk,0,1), array.set(phikk,1,acf1)
+array.set(phikj,0,1), array.set(phikj,1,acf1)
+    
+for k = 2 to maxl
+    sum1 = 0.0
+    sum2 = 0.0
+
+    for j = 1 to k-1
+        pk1j = array.get(phikj,j)
+        sum1 += pk1j *array.get(pk,k-j)
+        sum2 += pk1j *array.get(pk,j)
+    
+    pkk = (array.get(pk,k) - sum1) / (1 - sum2)
+    
+    cphikj = array.copy(phikj)
+    for j = 1 to k-1
+        pk1j = array.get(cphikj,j)
+        pk1kj = array.get(cphikj,k-j)
+        pkj = pk1j - pkk* pk1kj
+        array.set(phikj,j,pkj)
+    
+    array.set(phikj,k,pkk)
+    array.set(phikk,k,pkk)
+    //array.set(phikk,k,math.abs(pkk))
+
+//array.shift(phikk)
+//maxid = array.lastindexof(phikk,array.max(phikk))
+
+var cv1 = 2/math.sqrt(len)
+var cv2 = -cv1
+
+var aLines = array.new_line (maxl  )
+var bLines = array.new_line (maxl  )
+var lab = array.new_label(maxl  +1)
+var linesAreNA = true
+
+
+autocorrelation = a_sel == "ACF" ? pk : phikk
+col = a_sel == "ACF" ? color.aqua : #ff2d5f
+
+if barstate.islast and p_sel == hist
+    if linesAreNA
+        for i=1 to maxl
+            barpk = bar_index - i + 1
+            array.set(aLines, i-1, line.new(barpk , array.get(autocorrelation, maxl-i+1), barpk, 0, color = col, width=2))
+        for j=5 to maxl by 5
+            barL = bar_index - maxl + j
+            array.set(lab, j, label.new(barL, cv2, text="\n" + str.tostring(j), color=#00000000, textcolor=color.white, style=label.style_label_up, size=size.small))
+        linesAreNA := false
+
+scol = array.get(phikk,lag) < cv1 and  array.get(phikk,lag) > cv2 ? color.gray: color.yellow
+
+hline(cv1)
+hline(cv2)
+
+
+
+plot(p_sel == lg ? array.get(phikk,lag) : na, color=scol)
